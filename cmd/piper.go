@@ -169,6 +169,7 @@ func Execute() {
 	rootCmd.AddCommand(GctsCloneRepositoryCommand())
 	rootCmd.AddCommand(JsonApplyPatchCommand())
 	rootCmd.AddCommand(KanikoExecuteCommand())
+	rootCmd.AddCommand(BuildkitExecuteCommand())
 	rootCmd.AddCommand(CnbBuildCommand())
 	rootCmd.AddCommand(AbapEnvironmentBuildCommand())
 	rootCmd.AddCommand(AbapEnvironmentAssemblePackagesCommand())
