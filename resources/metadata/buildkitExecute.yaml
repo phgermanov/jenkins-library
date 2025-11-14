@@ -1,0 +1,128 @@
+metadata:
+  name: buildkitExecute
+  description: Executes a BuildKit build for creating a Docker container image.
+  longDescription: |
+    Executes a [BuildKit](https://github.com/moby/buildkit) build for creating a Docker container image.
+
+    BuildKit is the modern container build engine from Docker, offering superior performance and caching compared to legacy builders.
+    This step is designed as a replacement for the deprecated kanikoExecute step.
+
+    **Note:** This step currently supports GitHub Actions only.
+
+spec:
+  inputs:
+    secrets:
+      - name: dockerConfigJsonCredentialsId
+        description: Jenkins 'Secret file' credentials ID containing Docker config.json (with registry credential(s)).
+        type: jenkins
+    params:
+      - name: containerImage
+        type: string
+        description: Defines the full name of the Docker image to be created including registry, image name and tag like `my.docker.registry/path/myImageName:myTag`.
+        scope:
+          - PARAMETERS
+          - STAGES
+          - STEPS
+      - name: containerImageName
+        type: string
+        description: Name of the container which will be built - will be used instead of parameter `containerImage`.
+        scope:
+          - GENERAL
+          - PARAMETERS
+          - STAGES
+          - STEPS
+      - name: containerImageTag
+        aliases:
+          - name: artifactVersion
+        type: string
+        description: Tag of the container which will be built - will be used instead of parameter `containerImage`
+        scope:
+          - GENERAL
+          - PARAMETERS
+          - STAGES
+          - STEPS
+        resourceRef:
+          - name: commonPipelineEnvironment
+            param: artifactVersion
+      - name: containerRegistryUrl
+        type: string
+        description: http(s) url of the Container registry where the image should be pushed to - will be used instead of parameter `containerImage`
+        scope:
+          - GENERAL
+          - PARAMETERS
+          - STAGES
+          - STEPS
+        resourceRef:
+          - name: commonPipelineEnvironment
+            param: container/registryUrl
+      - name: containerRegistryUser
+        type: string
+        description: Username of the Container registry where the image should be pushed to
+        scope:
+          - GENERAL
+          - PARAMETERS
+          - STAGES
+          - STEPS
+        resourceRef:
+          - name: commonPipelineEnvironment
+            param: container/repositoryUsername
+      - name: containerRegistryPassword
+        type: string
+        description: Password of the Container registry where the image should be pushed to
+        scope:
+          - GENERAL
+          - PARAMETERS
+          - STAGES
+          - STEPS
+        resourceRef:
+          - name: commonPipelineEnvironment
+            param: container/repositoryPassword
+      - name: dockerConfigJSON
+        type: string
+        description: Path to the file `.docker/config.json` - this is typically provided by your CI/CD system.
+        scope:
+          - PARAMETERS
+          - STAGES
+          - STEPS
+        secret: true
+        resourceRef:
+          - name: dockerConfigJsonCredentialsId
+            type: secret
+          - type: vaultSecretFile
+            name: dockerConfigFileVaultSecretName
+            default: docker-config
+      - name: dockerfilePath
+        type: string
+        description: Defines the location of the Dockerfile relative to the pipeline working directory.
+        scope:
+          - PARAMETERS
+          - STAGES
+          - STEPS
+        default: Dockerfile
+      - name: buildOptions
+        type: "[]string"
+        description: Defines a list of build options for the BuildKit build (passed to buildctl).
+        scope:
+          - PARAMETERS
+          - STAGES
+          - STEPS
+        default: []
+  outputs:
+    resources:
+      - name: commonPipelineEnvironment
+        type: piperEnvironment
+        params:
+          - name: container/registryUrl
+          - name: container/imageNameTag
+          - name: container/imageDigest
+  containers:
+    - image: moby/buildkit:latest
+      command:
+        - sh
+      shell: /bin/sh
+      options:
+        - name: --entrypoint
+          value: ""
+      env:
+        - name: BUILDKITD_FLAGS
+          value: --oci-worker-no-process-sandbox
