@@ -37,12 +37,21 @@ func buildkitExecute(config buildkitExecuteOptions, telemetryData *telemetry.Cus
 }
 
 func runBuildkitExecute(config *buildkitExecuteOptions, telemetryData *telemetry.CustomData, commonPipelineEnvironment *buildkitExecuteCommonPipelineEnvironment, execRunner command.ExecRunner, fileUtils piperutils.FileUtils) error {
+	// Get current working directory
+	cwd, err := fileUtils.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current working directory: %w", err)
+	}
+
+	// Use working directory for Docker config to avoid permission issues
+	dockerConfigDir := fmt.Sprintf("%s/.docker", cwd)
+	dockerConfigPath := fmt.Sprintf("%s/config.json", dockerConfigDir)
+
 	// Setup Docker config.json for authentication
 	dockerConfig := []byte(`{"auths":{}}`)
 
 	// respect user provided docker config json file
 	if len(config.DockerConfigJSON) > 0 {
-		var err error
 		dockerConfig, err = fileUtils.FileRead(config.DockerConfigJSON)
 		if err != nil {
 			return errors.Wrapf(err, "failed to read existing docker config json at '%v'", config.DockerConfigJSON)
@@ -51,7 +60,7 @@ func runBuildkitExecute(config *buildkitExecuteOptions, telemetryData *telemetry
 
 	// if user provided credentials, create/update docker config json
 	if len(config.ContainerRegistryURL) > 0 && len(config.ContainerRegistryPassword) > 0 && len(config.ContainerRegistryUser) > 0 {
-		targetConfigJson := "/root/.docker/config.json"
+		targetConfigJson := dockerConfigPath
 		if len(config.DockerConfigJSON) > 0 {
 			targetConfigJson = config.DockerConfigJSON
 		}
@@ -67,10 +76,15 @@ func runBuildkitExecute(config *buildkitExecuteOptions, telemetryData *telemetry
 		}
 	}
 
-	// Write docker config to standard location
-	if err := fileUtils.FileWrite("/root/.docker/config.json", dockerConfig, 0644); err != nil {
-		return errors.Wrap(err, "failed to write file '/root/.docker/config.json'")
+	// Create directory and write docker config
+	if err := fileUtils.MkdirAll(dockerConfigDir, 0755); err != nil {
+		return errors.Wrapf(err, "failed to create directory %v", dockerConfigDir)
 	}
+	if err := fileUtils.FileWrite(dockerConfigPath, dockerConfig, 0644); err != nil {
+		return errors.Wrapf(err, "failed to write file '%v'", dockerConfigPath)
+	}
+
+	log.Entry().Debugf("Docker config written to: %s", dockerConfigPath)
 
 	// Determine the image destination
 	var destination string
@@ -111,20 +125,24 @@ func runBuildkitExecute(config *buildkitExecuteOptions, telemetryData *telemetry
 		return fmt.Errorf("either containerImage or (containerRegistryUrl, containerImageName, containerImageTag) must be provided")
 	}
 
-	if err := runBuildkit(config.DockerfilePath, destination, config.BuildOptions, execRunner, fileUtils, commonPipelineEnvironment); err != nil {
+	if err := runBuildkit(config.DockerfilePath, destination, dockerConfigDir, config.BuildOptions, execRunner, fileUtils, commonPipelineEnvironment); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func runBuildkit(dockerFilepath string, destination string, buildOptions []string, execRunner command.ExecRunner, fileUtils piperutils.FileUtils, commonPipelineEnvironment *buildkitExecuteCommonPipelineEnvironment) error {
+func runBuildkit(dockerFilepath string, destination string, dockerConfigDir string, buildOptions []string, execRunner command.ExecRunner, fileUtils piperutils.FileUtils, commonPipelineEnvironment *buildkitExecuteCommonPipelineEnvironment) error {
 	cwd, err := fileUtils.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current working directory: %w", err)
 	}
 
 	log.Entry().Infof("Building image: %s", destination)
+
+	// Set DOCKER_CONFIG environment variable to point to our config location
+	log.Entry().Debugf("Setting DOCKER_CONFIG=%s", dockerConfigDir)
+	execRunner.SetEnv([]string{fmt.Sprintf("DOCKER_CONFIG=%s", dockerConfigDir)})
 
 	// Start buildkitd in background
 	log.Entry().Info("Starting BuildKit daemon...")
